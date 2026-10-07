@@ -225,6 +225,12 @@ def generate(cfg: GenConfig) -> None:
         logger.warning("No reference images given; generating from the prompt alone.")
 
     prompt_embeds, negative_prompt_embeds = encode_prompts(cfg)
+    # The pipeline only casts passed-in embeddings, it doesn't move them; without offload hooks
+    # they would stay on the CPU and drag the time embedding there with them.
+    embeds_dtype = DTYPES[cfg.dtype]
+    prompt_embeds = prompt_embeds.to(cfg.device, embeds_dtype)
+    if negative_prompt_embeds is not None:
+        negative_prompt_embeds = negative_prompt_embeds.to(cfg.device, embeds_dtype)
 
     pipe = build_pipeline(cfg)
     # A CPU generator keeps seeds reproducible across devices.
