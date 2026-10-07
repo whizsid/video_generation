@@ -178,6 +178,7 @@ free the model, then post-process.
 | Colab: `CUDA out of memory` | Keep `--quant Q3_K_M` and `--resolution 432p`; try `--quant Q3_K_S`, or `--seconds 3` |
 | Colab: session crashes while loading the model | System RAM ran out: use a smaller `--quant` (Q3_K_S) or a high-RAM runtime |
 | Colab: `CUDA is not available` | `Runtime > Change runtime type > T4 GPU` |
+| Colab: `cannot import name 'FqnToConfig' from 'torchao.quantization'` | `pip uninstall -y torchao` (the install cell does this; not needed here) |
 | Mac: `MPS backend out of memory` | Use `--frames 17` and close other apps |
 | Mac: `MLIR pass manager failed` or Conv3D errors | `uv sync --extra conv3d` then add `--conv3d-patch`; or `--device cpu --offload none` |
 | Mac: black or noisy frames | `--dtype bfloat16` |
