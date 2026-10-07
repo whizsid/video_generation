@@ -107,7 +107,7 @@ PROFILES: dict[str, Profile] = {
         flow_shift=5.0,
         scheduler="euler",
         gguf_repo=GGUF_REPO_14B,
-        # Q3_K_M (8.6 GB) is the largest quant that fits both free-Colab RAM while loading and T4 VRAM.
+        # Q3_K_M (8.6 GB) is the largest quant that leaves room for activations in T4 VRAM.
         quant="Q3_K_M",
     ),
 }

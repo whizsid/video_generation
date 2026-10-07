@@ -61,9 +61,9 @@ The whole clip is generated natively, so no frame interpolation is needed.
 A free Colab T4 has ~15 GB of usable VRAM and only ~12.7 GB of system RAM, so nothing can be
 offloaded to the CPU; the 14B model must live entirely on the GPU.
 
-- **Quantization.** `diffusers` reads the whole GGUF file into RAM while loading. Q3_K_M (8.6 GB)
-  fits in RAM and leaves ~6 GB of VRAM for activations. Q4 and larger files risk running out of
-  RAM on the free tier and out of VRAM during generation.
+- **Quantization.** The GGUF file is streamed onto the GPU one tensor at a time. `diffusers`'
+  own loader reads all of it into RAM first, which crashes free Colab. Q3_K_M (8.6 GB) leaves
+  ~6 GB of VRAM for activations; Q4 and larger files risk running out of VRAM during generation.
 - **Resolution.** At 768x432 x 65 frames the transformer works on ~22,000 tokens per step, which
   needs roughly 4-5 GB of activations. 1024x576 would need ~7 GB and doesn't fit next to the model.
 - **Text encoder.** The 11 GB UMT5-XXL encoder is streamed straight to the GPU in float16 (its
@@ -176,7 +176,7 @@ free the model, then post-process.
 | Symptom | Fix |
 |---|---|
 | Colab: `CUDA out of memory` | Keep `--quant Q3_K_M` and `--resolution 432p`; try `--quant Q3_K_S`, or `--seconds 3` |
-| Colab: session crashes while loading the model | System RAM ran out: use a smaller `--quant` (Q3_K_S) or a high-RAM runtime |
+| Colab: session crashes or the cell prints `^C` while loading the model | System RAM ran out. Pull the latest code (the transformer now streams straight to the GPU); otherwise use a high-RAM runtime |
 | Colab: `CUDA is not available` | `Runtime > Change runtime type > T4 GPU` |
 | Colab: `cannot import name 'FqnToConfig' from 'torchao.quantization'` | `pip uninstall -y torchao` (the install cell does this; not needed here) |
 | Mac: `MPS backend out of memory` | Use `--frames 17` and close other apps |

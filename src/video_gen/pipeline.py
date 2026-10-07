@@ -117,6 +117,27 @@ def _maybe_patch_conv3d(cfg: GenConfig) -> None:
     logger.info("Patched F.conv3d with native Metal kernel (mps-conv3d).")
 
 
+def _load_gguf_state_dict(path: str, device: str) -> dict[str, torch.Tensor]:
+    """Read a GGUF file one tensor at a time straight onto `device`.
+
+    diffusers' own loader copies the whole file into system RAM first (~9 GB for Q3_K_M), which
+    is more than free Colab has left once torch and CUDA are initialised.
+    """
+    import gguf
+    from diffusers.quantizers.gguf.utils import SUPPORTED_GGUF_QUANT_TYPES, GGUFParameter
+
+    unquantized = (gguf.GGMLQuantizationType.F32, gguf.GGMLQuantizationType.F16)
+    reader = gguf.GGUFReader(path)
+    state_dict: dict[str, torch.Tensor] = {}
+    for tensor in reader.tensors:
+        quant_type = tensor.tensor_type
+        if quant_type not in unquantized and quant_type not in SUPPORTED_GGUF_QUANT_TYPES:
+            raise ValueError(f"{tensor.name} uses unsupported GGUF quantization {quant_type!r}")
+        weights = torch.from_numpy(np.array(tensor.data)).to(device)
+        state_dict[tensor.name] = weights if quant_type in unquantized else GGUFParameter(weights, quant_type=quant_type)
+    return state_dict
+
+
 def _load_gguf_transformer(cfg: GenConfig):
     from diffusers import GGUFQuantizationConfig, WanVACETransformer3DModel
     from huggingface_hub import hf_hub_download
@@ -125,8 +146,9 @@ def _load_gguf_transformer(cfg: GenConfig):
     path = hf_hub_download(cfg.gguf_repo, cfg.gguf_file)
     dtype = DTYPES[cfg.dtype]
     logger.info("Loading 14B transformer (%s, compute %s) onto %s...", cfg.quant, cfg.dtype, cfg.device)
+    state_dict = _load_gguf_state_dict(path, cfg.device)
     return WanVACETransformer3DModel.from_single_file(
-        path,
+        state_dict,
         config=cfg.model_id,
         subfolder="transformer",
         quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
