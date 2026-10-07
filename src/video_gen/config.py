@@ -28,6 +28,13 @@ Device = Literal["mps", "cuda", "cpu"]
 OffloadMode = Literal["sequential", "model", "none"]
 DType = Literal["float16", "bfloat16", "float32"]
 SchedulerName = Literal["unipc", "euler"]
+# subject: references describe who/what appears (new scene). first-frame: the first reference is
+# frame 0 and the video animates it, keeping its face, colors, environment and lighting.
+RefMode = Literal["subject", "first-frame"]
+REF_MODES = ("subject", "first-frame")
+# How a first-frame photo that isn't 16:9 is fitted: pad (outpaint the bars) or crop (center crop).
+FirstFrameFit = Literal["pad", "crop"]
+FIRST_FRAME_FITS = ("pad", "crop")
 
 # Height/width must be divisible by VAE spatial factor (8) x transformer patch size (2).
 SPATIAL_MULTIPLE = 16
@@ -124,6 +131,8 @@ def frames_for_seconds(seconds: float, fps: int) -> int:
 class GenConfig:
     prompt: str
     reference_paths: list[Path] = field(default_factory=list)
+    ref_mode: RefMode = "subject"
+    fit: FirstFrameFit = "pad"
     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
     output_path: Path = Path("outputs/clip.mp4")
 
@@ -228,6 +237,12 @@ class GenConfig:
                 raise ValueError(f"quant must be one of {', '.join(GGUF_QUANTS)}.")
             if self.device != "cuda":
                 raise ValueError("GGUF (14B) models are only supported on CUDA; use --profile mac on Apple Silicon.")
+        if self.ref_mode not in REF_MODES:
+            raise ValueError(f"ref_mode must be one of {', '.join(REF_MODES)}.")
+        if self.fit not in FIRST_FRAME_FITS:
+            raise ValueError(f"fit must be one of {', '.join(FIRST_FRAME_FITS)}.")
+        if self.ref_mode == "first-frame" and not self.reference_paths:
+            raise ValueError("--ref-mode first-frame needs a reference image (--ref) to use as the first frame.")
         for path in self.reference_paths:
             if not path.is_file():
                 raise FileNotFoundError(f"Reference image not found: {path}")

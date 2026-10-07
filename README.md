@@ -3,8 +3,14 @@
 Generate **4-second, 16:9, 720p videos** from **reference images + a text prompt** with
 [Wan2.1-VACE](https://huggingface.co/Wan-AI/Wan2.1-VACE-14B). Everything is free.
 
-Reference images describe a **subject, character, object, or style** that the video should follow.
-They are not used as the literal first frame. You can pass one or several.
+Reference images are used in one of two ways (`--ref-mode`):
+
+- **`subject`** (CLI default): the images show a **subject, character, object, or style**, and the
+  model generates a new scene around them. You can pass one or several.
+- **`first-frame`** (notebook default): the first image **becomes frame 0** and the video animates
+  it, keeping its face, colors, environment and lighting. Photos that aren't 16:9 are padded and
+  the sides outpainted (`--fit pad`) or center-cropped (`--fit crop`). Any further images act as
+  subject references.
 
 There are two hardware profiles:
 
@@ -43,6 +49,11 @@ pip install -e .
 video-gen --profile t4 \
   --prompt "A young woman with curly hair walks slowly along a sunlit beach at golden hour, handheld camera, photorealistic" \
   --ref inputs/woman.png --out outputs/beach.mp4
+
+# Animate a photo as-is
+video-gen --profile t4 \
+  --prompt "A young boy holding a toy gun slowly swings it to the left, then to the right, softly lit living room, handheld cinematic shot" \
+  --ref inputs/boy.jpg --ref-mode first-frame --out outputs/boy.mp4
 ```
 
 ### What the t4 profile does
@@ -135,6 +146,8 @@ Each run writes:
 |---|---|---|
 | `--profile` | auto | `t4`, `mac`, or `auto` |
 | `--ref PATH` | none | Repeat for multiple references |
+| `--ref-mode` | subject | `subject` (new scene with the referenced subject) or `first-frame` (animate the first `--ref` as-is) |
+| `--fit` | pad | first-frame only: `pad` outpaints the sides of non-16:9 photos, `crop` center-crops |
 | `--resolution` | profile | 288p (512x288), 432p (768x432), 576p (1024x576), 720p (1280x720) |
 | `--seconds` | 4.0 | Final duration |
 | `--no-interpolate` | off | Keep exactly the generated frames |
@@ -168,8 +181,11 @@ free the model, then post-process.
 - Describe the subject, action, setting, lighting, and camera, for example "close-up, handheld
   camera, soft natural light, shallow depth of field, photorealistic".
 - Keep motion simple and gentle; 4-second clips handle one clear action best.
-- Use reference images with a clean, uncluttered background. Each one is letterboxed onto a white
-  canvas at the generation size.
+- Describe what should happen, not what shouldn't. Instructions like "do not change the face"
+  don't work: the text encoder doesn't understand negation. To keep a photo's look, use
+  `--ref-mode first-frame`.
+- In `subject` mode, use reference images with a clean, uncluttered background. Each one is
+  letterboxed onto a white canvas at the generation size.
 - On the mac profile the default negative prompt suppresses common artifacts. The t4 profile runs
   without guidance, so negative prompts have no effect there.
 

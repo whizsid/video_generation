@@ -8,9 +8,11 @@ from pathlib import Path
 
 from video_gen.config import (
     DEFAULT_NEGATIVE_PROMPT,
+    FIRST_FRAME_FITS,
     GENERATION_RESOLUTIONS,
     GGUF_QUANTS,
     PROFILES,
+    REF_MODES,
     UPSCALE_TARGETS,
     GenConfig,
 )
@@ -35,7 +37,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt", "-p", required=True, help="Text description of the video.")
     parser.add_argument(
         "--ref", "-r", dest="refs", action="append", type=Path, default=[],
-        help="Subject/style reference image. Repeat for multiple references.",
+        help="Reference image. Repeat for multiple references.",
+    )
+    parser.add_argument(
+        "--ref-mode", choices=list(REF_MODES), default=defaults.ref_mode,
+        help="subject: references show who/what appears in a newly generated scene. "
+        "first-frame: the first --ref becomes frame 0 and is animated as-is (face, colors, "
+        "environment, lighting kept); any further --ref images act as subject references.",
+    )
+    parser.add_argument(
+        "--fit", choices=list(FIRST_FRAME_FITS), default=defaults.fit,
+        help="first-frame mode, for photos that aren't 16:9: pad keeps the whole photo and outpaints "
+        "the sides; crop center-crops it to fill the frame.",
     )
     parser.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT,
                         help="What to avoid (ignored by the t4 profile, which runs without guidance).")
@@ -60,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Prompt adherence. Keep 1.0 with the distilled t4 model.")
     gen.add_argument(
         "--ref-strength", type=float, default=defaults.conditioning_scale,
-        help="How strongly the references condition the video (VACE conditioning scale).",
+        help="How strongly the references / first frame condition the video (VACE conditioning scale).",
     )
     gen.add_argument("--flow-shift", type=float, default=None)
     gen.add_argument("--fps", type=int, default=defaults.fps)
@@ -104,6 +117,8 @@ def config_from_args(args: argparse.Namespace) -> GenConfig:
         resolve_profile(args.profile),
         prompt=args.prompt,
         reference_paths=args.refs,
+        ref_mode=args.ref_mode,
+        fit=args.fit,
         negative_prompt=args.negative_prompt,
         output_path=out,
         resolution=args.resolution,
@@ -142,9 +157,9 @@ def main(argv: list[str] | None = None) -> int:
         logging.error("%s", exc)
         return 2
     logging.info(
-        "Profile %s: %s, %dx%d, %d frames, %d steps%s",
+        "Profile %s: %s, %dx%d, %d frames, %d steps%s, ref-mode %s",
         cfg.profile, cfg.model_id, cfg.width, cfg.height, cfg.num_frames, cfg.num_inference_steps,
-        f", GGUF {cfg.quant}" if cfg.gguf_repo else "",
+        f", GGUF {cfg.quant}" if cfg.gguf_repo else "", cfg.ref_mode,
     )
 
     # Imported lazily so `--help` and argument errors don't pay the torch/diffusers import cost.

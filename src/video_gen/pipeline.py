@@ -18,7 +18,7 @@ from diffusers.utils import export_to_video
 
 from video_gen.config import GenConfig
 from video_gen.postprocess import needs_postprocess, postprocess
-from video_gen.utils import format_duration, load_reference_images
+from video_gen.utils import build_first_frame_conditioning, format_duration, load_reference_images
 
 logger = logging.getLogger(__name__)
 
@@ -241,8 +241,16 @@ def generate(cfg: GenConfig) -> None:
     _check_device(cfg)
 
     total_start = time.perf_counter()
-    references = load_reference_images(cfg.reference_paths, cfg.height, cfg.width)
-    if not references:
+    subject_paths = cfg.reference_paths
+    video = mask = None
+    if cfg.ref_mode == "first-frame":
+        video, mask = build_first_frame_conditioning(
+            cfg.reference_paths[0], cfg.height, cfg.width, cfg.num_frames, cfg.fit
+        )
+        subject_paths = cfg.reference_paths[1:]
+        logger.info("First frame: %s (fit=%s)", cfg.reference_paths[0], cfg.fit)
+    references = load_reference_images(subject_paths, cfg.height, cfg.width)
+    if not cfg.reference_paths:
         logger.warning("No reference images given; generating from the prompt alone.")
 
     prompt_embeds, negative_prompt_embeds = encode_prompts(cfg)
@@ -263,14 +271,17 @@ def generate(cfg: GenConfig) -> None:
     decode_separately = cfg.device == "cuda" and cfg.offload == "none"
 
     logger.info(
-        "Generating %d frames at %dx%d, %d steps, %d reference image(s), seed=%d",
-        cfg.num_frames, cfg.width, cfg.height, cfg.num_inference_steps, len(references), seed,
+        "Generating %d frames at %dx%d, %d steps, %s, %d subject reference(s), seed=%d",
+        cfg.num_frames, cfg.width, cfg.height, cfg.num_inference_steps,
+        "animating the first frame" if video is not None else "new scene", len(references), seed,
     )
     denoise_start = time.perf_counter()
     with torch.inference_mode():
         result = pipe(
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
+            video=video,
+            mask=mask,
             reference_images=references or None,
             conditioning_scale=cfg.conditioning_scale,
             height=cfg.height,
