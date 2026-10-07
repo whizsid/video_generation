@@ -8,8 +8,9 @@ Reference images are used in one of two ways (`--ref-mode`):
 - **`subject`** (CLI default): the images show a **subject, character, object, or style**, and the
   model generates a new scene around them. You can pass one or several.
 - **`first-frame`** (notebook default): the first image **becomes frame 0** and the video animates
-  it, keeping its face, colors, environment and lighting. The photo's latent is re-imposed after
-  every denoising step, so frame 0 stays exact and later frames follow it. Photos that aren't 16:9
+  it, keeping its face, colors, environment and lighting. Every frame starts from the noised photo
+  (`--strength`) and the photo's latent is re-imposed after every denoising step, so frame 0 stays
+  exact and later frames follow it without morphing. Photos that aren't 16:9
   are padded and the sides outpainted (`--fit pad`) or center-cropped (`--fit crop`). Any further
   images act as subject references.
 
@@ -149,6 +150,7 @@ Each run writes:
 | `--ref PATH` | none | Repeat for multiple references |
 | `--ref-mode` | subject | `subject` (new scene with the referenced subject) or `first-frame` (animate the first `--ref` as-is) |
 | `--fit` | pad | first-frame only: `pad` outpaints the sides of non-16:9 photos, `crop` center-crops |
+| `--strength` | 0.7 | first-frame only: lower = every frame starts closer to the photo (smooth start, less motion); 1.0 = from pure noise (more motion, may blend in the first frames) |
 | `--resolution` | profile | 288p (512x288), 432p (768x432), 576p (1024x576), 720p (1280x720) |
 | `--seconds` | 4.0 | Final duration |
 | `--no-interpolate` | off | Keep exactly the generated frames |

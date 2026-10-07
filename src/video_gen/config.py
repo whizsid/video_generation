@@ -133,6 +133,9 @@ class GenConfig:
     reference_paths: list[Path] = field(default_factory=list)
     ref_mode: RefMode = "subject"
     fit: FirstFrameFit = "pad"
+    # first-frame mode: 1.0 starts all frames from pure noise (most motion, but the scene can morph
+    # in the first frames); lower starts every frame from the noised photo and skips early steps.
+    strength: float = 0.7
     negative_prompt: str = DEFAULT_NEGATIVE_PROMPT
     output_path: Path = Path("outputs/clip.mp4")
 
@@ -241,6 +244,10 @@ class GenConfig:
             raise ValueError(f"ref_mode must be one of {', '.join(REF_MODES)}.")
         if self.fit not in FIRST_FRAME_FITS:
             raise ValueError(f"fit must be one of {', '.join(FIRST_FRAME_FITS)}.")
+        if not 0 < self.strength <= 1:
+            raise ValueError("strength must be in (0, 1].")
+        if self.ref_mode == "first-frame" and int(self.num_inference_steps * self.strength) < 1:
+            raise ValueError(f"strength={self.strength} with {self.num_inference_steps} steps runs no steps; raise one.")
         if self.ref_mode == "first-frame" and not self.reference_paths:
             raise ValueError("--ref-mode first-frame needs a reference image (--ref) to use as the first frame.")
         for path in self.reference_paths:

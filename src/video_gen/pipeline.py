@@ -226,22 +226,40 @@ class FirstFrameAnchor:
     """
 
     def __init__(self, pipe: WanVACEPipeline, first_frame, first_mask, frame_index: int, generator):
-        vae = pipe.vae
-        device = pipe._execution_device
+        self.vae = pipe.vae
+        self.device = pipe._execution_device
         pixels = pipe.video_processor.preprocess(first_frame, first_frame.height, first_frame.width)
-        pixels = pixels.to(device, vae.dtype).unsqueeze(2)
-        latent = vae.encode(pixels).latent_dist.mode().float()
-        shape = (1, vae.config.z_dim, 1, 1, 1)
-        mean = torch.tensor(vae.config.latents_mean, device=device).view(shape)
-        std = torch.tensor(vae.config.latents_std, device=device).view(shape)
-        self.clean = (latent - mean) / std
+        self.pixels = pixels.to(self.device, self.vae.dtype).unsqueeze(2)
+        self.clean = self._encode(self.pixels)
 
         keep = torch.from_numpy(np.array(first_mask) == 0).float()[None, None]
-        keep = torch.nn.functional.interpolate(keep, size=latent.shape[-2:], mode="area")
+        keep = torch.nn.functional.interpolate(keep, size=self.clean.shape[-2:], mode="area")
         # Only latent cells lying entirely inside the photo are pinned; the rest stays free to outpaint.
-        self.keep = (keep > 0.999).float().to(device).unsqueeze(2)
-        self.noise = torch.randn(self.clean.shape, generator=generator, dtype=torch.float32).to(device)
+        self.keep = (keep > 0.999).float().to(self.device).unsqueeze(2)
+        self.noise = torch.randn(self.clean.shape, generator=generator, dtype=torch.float32).to(self.device)
         self.index = frame_index
+
+    def _encode(self, pixels: torch.Tensor) -> torch.Tensor:
+        latent = self.vae.encode(pixels).latent_dist.mode().float()
+        shape = (1, self.vae.config.z_dim, 1, 1, 1)
+        mean = torch.tensor(self.vae.config.latents_mean, device=latent.device).view(shape)
+        std = torch.tensor(self.vae.config.latents_std, device=latent.device).view(shape)
+        return (latent - mean) / std
+
+    def initial_latents(self, num_frames: int, sigma: float, generator) -> torch.Tensor:
+        """Start every frame as the still photo noised to `sigma`, instead of pure noise.
+
+        From pure noise, the first (layout-deciding) step ignores the photo and later frames morph
+        from the model's own layout into the pinned photo, which shows as blending in the first frames.
+        """
+        still = self._encode(self.pixels.expand(-1, -1, num_frames, -1, -1).contiguous())
+        noise = torch.randn(still.shape, generator=generator, dtype=torch.float32).to(self.device)
+        noise[:, :, :1] = self.noise
+        latents = self.keep * ((1 - sigma) * still + sigma * noise) + (1 - self.keep) * noise
+        # Subject reference images occupy the first latent frames; those start from pure noise as usual.
+        ref_shape = (*latents.shape[:2], self.index, *latents.shape[3:])
+        ref_noise = torch.randn(ref_shape, generator=generator, dtype=torch.float32).to(self.device)
+        return torch.cat([ref_noise, latents], dim=2)
 
     def __call__(self, pipe: WanVACEPipeline, step: int, timestep, callback_kwargs: dict) -> dict:
         latents = callback_kwargs["latents"]
@@ -251,6 +269,24 @@ class FirstFrameAnchor:
         frame = latents[:, :, self.index : self.index + 1]
         latents[:, :, self.index : self.index + 1] = self.keep * known + (1 - self.keep) * frame
         return {"latents": latents}
+
+
+def _skip_first_steps(scheduler, num_steps: int, skip: int) -> float:
+    """Make the scheduler start `skip` steps into its usual schedule; returns the starting noise level.
+
+    Keeping the distilled model's own timesteps (rather than a new, shorter schedule) matters: it
+    was trained on exactly those noise levels.
+    """
+    original = scheduler.set_timesteps
+
+    def set_timesteps(*args, **kwargs):
+        original(*args, **kwargs)
+        scheduler.timesteps = scheduler.timesteps[skip:]
+        scheduler.sigmas = scheduler.sigmas[skip:]
+
+    scheduler.set_timesteps = set_timesteps
+    scheduler.set_timesteps(num_steps)
+    return float(scheduler.sigmas[0])
 
 
 def _decode_latents(
@@ -314,10 +350,19 @@ def generate(cfg: GenConfig) -> None:
     )
     denoise_start = time.perf_counter()
     with torch.inference_mode():
-        anchor = None
+        anchor = initial_latents = None
         if video is not None:
             # Subject references are prepended as extra latent frames, so frame 0 comes after them.
             anchor = FirstFrameAnchor(pipe, video[0], mask[0], len(references), generator)
+            steps_run = min(int(cfg.num_inference_steps * cfg.strength), cfg.num_inference_steps)
+            skip = cfg.num_inference_steps - steps_run
+            if skip:
+                sigma = _skip_first_steps(pipe.scheduler, cfg.num_inference_steps, skip)
+                initial_latents = anchor.initial_latents(cfg.num_frames, sigma, generator)
+                logger.info(
+                    "Starting every frame from the photo (strength %.2f): running %d of %d steps from noise level %.3f",
+                    cfg.strength, steps_run, cfg.num_inference_steps, sigma,
+                )
         result = pipe(
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
@@ -332,9 +377,10 @@ def generate(cfg: GenConfig) -> None:
             guidance_scale=cfg.guidance_scale,
             generator=generator,
             output_type="latent" if decode_separately else "np",
+            latents=initial_latents,
             callback_on_step_end=anchor,
         )
-        del anchor
+        del anchor, initial_latents
 
         if decode_separately:
             latents, vae, video_processor = result.frames, pipe.vae, pipe.video_processor

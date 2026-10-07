@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="first-frame mode, for photos that aren't 16:9: pad keeps the whole photo and outpaints "
         "the sides; crop center-crops it to fill the frame.",
     )
+    parser.add_argument(
+        "--strength", type=float, default=defaults.strength,
+        help="first-frame mode: how far frames may depart from the photo. Lower starts every frame "
+        "from the noised photo (smoother start, less motion); 1.0 starts from pure noise (more "
+        "motion, but the scene may morph in the first frames).",
+    )
     parser.add_argument("--negative-prompt", default=DEFAULT_NEGATIVE_PROMPT,
                         help="What to avoid (ignored by the t4 profile, which runs without guidance).")
     parser.add_argument(
@@ -119,6 +125,7 @@ def config_from_args(args: argparse.Namespace) -> GenConfig:
         reference_paths=args.refs,
         ref_mode=args.ref_mode,
         fit=args.fit,
+        strength=args.strength,
         negative_prompt=args.negative_prompt,
         output_path=out,
         resolution=args.resolution,
