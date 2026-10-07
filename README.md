@@ -64,8 +64,10 @@ offloaded to the CPU; the 14B model must live entirely on the GPU.
 - **Quantization.** The GGUF file is streamed onto the GPU one tensor at a time. `diffusers`'
   own loader reads all of it into RAM first, which crashes free Colab. Q3_K_M (8.6 GB) leaves
   ~6 GB of VRAM for activations; Q4 and larger files risk running out of VRAM during generation.
-- **Resolution.** At 768x432 x 65 frames the transformer works on ~22,000 tokens per step, which
-  needs roughly 4-5 GB of activations. 1024x576 would need ~7 GB and doesn't fit next to the model.
+- **Resolution.** At 768x432 x 65 frames (+1 reference frame) the transformer works on ~23,000
+  tokens per step, which needs roughly 4-5 GB of activations. The 8 VACE hints (~1.9 GB) are
+  parked in system RAM until the main blocks use them, and `expandable_segments` avoids losing
+  over 1 GB of VRAM to fragmentation. 1024x576 would need ~7 GB and doesn't fit next to the model.
 - **Text encoder.** The 11 GB UMT5-XXL encoder is streamed straight to the GPU in float16 (its
   sensitive layers stay float32), used once, and freed before the transformer loads. Embeddings
   are cached in `.cache/prompt_embeds/`.

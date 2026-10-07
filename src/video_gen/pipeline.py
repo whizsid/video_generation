@@ -157,6 +157,24 @@ def _load_gguf_transformer(cfg: GenConfig):
     )
 
 
+def _offload_vace_hints(transformer) -> None:
+    """Keep VACE hints in system RAM until the main blocks consume them.
+
+    All VACE blocks run before the main blocks, so every hint (a full-sequence hidden state, ~240 MB
+    at 768x432 x 65 frames) would otherwise sit in VRAM at once. The transformer moves each hint back
+    to the compute device when it adds it.
+    """
+
+    def hint_to_cpu(_module, _args, output):
+        conditioning_states, control_hidden_states = output
+        if conditioning_states is not None:
+            conditioning_states = conditioning_states.to("cpu")
+        return conditioning_states, control_hidden_states
+
+    for block in transformer.vace_blocks:
+        block.register_forward_hook(hint_to_cpu)
+
+
 def build_pipeline(cfg: GenConfig) -> WanVACEPipeline:
     """Load transformer + VAE without the text encoder."""
     _maybe_patch_conv3d(cfg)
@@ -190,6 +208,9 @@ def build_pipeline(cfg: GenConfig) -> WanVACEPipeline:
         pipe.vae.to(cfg.device)
     else:
         pipe.to(cfg.device)
+
+    if cfg.device == "cuda" and cfg.offload == "none":
+        _offload_vace_hints(pipe.transformer)
 
     pipe.set_progress_bar_config(desc="Denoising")
     return pipe
