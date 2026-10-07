@@ -8,9 +8,10 @@ Reference images are used in one of two ways (`--ref-mode`):
 - **`subject`** (CLI default): the images show a **subject, character, object, or style**, and the
   model generates a new scene around them. You can pass one or several.
 - **`first-frame`** (notebook default): the first image **becomes frame 0** and the video animates
-  it, keeping its face, colors, environment and lighting. Photos that aren't 16:9 are padded and
-  the sides outpainted (`--fit pad`) or center-cropped (`--fit crop`). Any further images act as
-  subject references.
+  it, keeping its face, colors, environment and lighting. The photo's latent is re-imposed after
+  every denoising step, so frame 0 stays exact and later frames follow it. Photos that aren't 16:9
+  are padded and the sides outpainted (`--fit pad`) or center-cropped (`--fit crop`). Any further
+  images act as subject references.
 
 There are two hardware profiles:
 
